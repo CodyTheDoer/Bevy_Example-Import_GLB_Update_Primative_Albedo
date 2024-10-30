@@ -371,11 +371,11 @@ fn animate_light_direction(
 fn handle_asset_events(
     mut commands: Commands,
     mut events: EventReader<AssetEvent<Scene>>,
-    color_change_cube_query: Query<(Entity, &Handle<Scene>), With<ColorChange>>,
+    color_change_query: Query<(Entity, &Handle<Scene>), With<ColorChange>>,
 ) {
     for event in events.read() {
         if let AssetEvent::Added { id } = event {
-            for (entity, scene_handle) in color_change_cube_query.iter() {
+            for (entity, scene_handle) in color_change_query.iter() {
                 if *id == scene_handle.id() {
                     commands.entity(entity).insert(Loaded);
                 }
