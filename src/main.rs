@@ -202,7 +202,7 @@ fn setup(
         ..default()
     });
 
-    let scene_handle = asset_server.load("cube.glb#Scene0");
+    let scene_handle = asset_server.load("calculator.glb#Scene0");
     commands.spawn(SceneBundle {
         scene: scene_handle.clone(),
         ..default()
