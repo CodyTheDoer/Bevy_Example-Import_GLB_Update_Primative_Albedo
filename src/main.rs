@@ -16,8 +16,8 @@ fn main() {
         .add_systems(Update, (
             animate_light_direction,
             handle_asset_events,
-            // CurrentMeshColor::update_gltf_material_color.run_if(input_just_released(MouseButton::Left)),
             start_countdown.run_if(input_just_released(MouseButton::Left)), 
+            target_screen.run_if(input_just_released(MouseButton::Right)), 
             countdown,
         ))
         .run();
@@ -49,6 +49,9 @@ struct Countdown {
 
 #[derive(Default, Resource)]
 struct CurrentMeshColor;
+
+#[derive(Asset, Component, TypePath)]
+struct Interactable; 
 
 #[derive(Component)]
 struct Loaded;
@@ -117,10 +120,10 @@ impl CurrentMeshColor {
         mut materials: ResMut<Assets<StandardMaterial>>,
         children_query: Query<&Children>,
         material_query: Query<&Handle<StandardMaterial>>,
-        color_chang_cube_query: Query<(Entity, &Handle<Scene>), (With<ColorChange>, With<Loaded>)>,
+        color_change_cube_query: Query<(Entity, &Handle<Scene>), (With<ColorChange>, With<Loaded>)>,
         op_index: &mut ResMut<OpIndex>,
     ) {
-        for (entity, _) in color_chang_cube_query.iter() {
+        for (entity, _) in color_change_cube_query.iter() {
             if let Ok(children) = children_query.get(entity) {
                 Self::process_entity_children(
                     &mut materials,
@@ -203,15 +206,87 @@ fn setup(
     });
 
     let scene_handle = asset_server.load("calculator.glb#Scene0");
+    
     commands.spawn(SceneBundle {
-        scene: scene_handle.clone(),
+        scene: scene_handle,
         ..default()
     })
-    .insert(ColorChange);
+    .insert(ColorChange)
+    .insert(Interactable);
+}
+
+
+
+// /// This system starts the countdown when the mouse is clicked.
+// fn start_countdown(
+//     mut countdown: ResMut<Countdown>,
+//  ) {
+//     // Only start the countdown if it's not already active
+//     if !countdown.is_active {
+//         countdown.is_active = true;
+//         countdown.current_count = 0; // Reset the current count
+//         countdown.timer.reset();  // Reset the timer to start fresh
+//         info!("Countdown {} Init", countdown.current_count);
+//     }
+// }
+
+fn target_screen(
+    interactable_query: Query<Entity, With<Interactable>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    material_query: Query<&Handle<StandardMaterial>>,
+    children_query: Query<&Children>,
+    mut op_index: ResMut<OpIndex>,
+) {
+    for entity in interactable_query.iter() {
+        if let Ok(children) = children_query.get(entity) {
+            process_entity_children(
+                &mut materials,
+                &material_query,
+                children,
+                &children_query,
+                &mut op_index,
+            );
+        }
+    }
+}
+
+fn process_entity_children(
+    materials: &mut ResMut<Assets<StandardMaterial>>,
+    material_query: &Query<&Handle<StandardMaterial>>,
+    children: &Children,
+    children_query: &Query<&Children>,
+    op_index: &mut ResMut<OpIndex>,
+) {
+    for &child in children.iter() {
+        // info!("child: {:?}", &child);
+        // for i in 0..70{
+        if child.index() == 60 {
+            if let Ok(material_handle) = material_query.get(child) {
+                if let Some(material) = materials.get_mut(material_handle) {
+                    // info!("child: {:?}, material: {:?}", &child, &material.base_color); 
+                    material.base_color = CurrentMeshColor::update_current_mesh_color(op_index);
+                }
+            }
+        }
+        
+
+        // Recursively check grandchildren
+        if let Ok(grandchildren) = children_query.get(child) {
+            process_entity_children(
+                materials,
+                material_query,
+                grandchildren,
+                children_query,
+                op_index,
+            );
+        }
+    }
 }
 
 /// This system starts the countdown when the mouse is clicked.
-fn start_countdown(mut countdown: ResMut<Countdown>) {
+fn start_countdown(
+    mut countdown: ResMut<Countdown>,
+ ) {
     // Only start the countdown if it's not already active
     if !countdown.is_active {
         countdown.is_active = true;
@@ -229,7 +304,7 @@ fn countdown(
     mut materials: ResMut<Assets<StandardMaterial>>,
     children_query: Query<&Children>,
     material_query: Query<&Handle<StandardMaterial>>,
-    color_chang_cube_query: Query<(Entity, &Handle<Scene>), (With<ColorChange>, With<Loaded>)>,
+    color_change_cube_query: Query<(Entity, &Handle<Scene>), (With<ColorChange>, With<Loaded>)>,
     mut op_index: ResMut<OpIndex>,
 ) {
     // Only tick the timer if the countdown is active
@@ -239,13 +314,14 @@ fn countdown(
 
         // Check if the timer has finished for the current iteration
         if countdown.timer.finished() {
+
             info!("Countdown {} Completed", countdown.current_count);
     
             CurrentMeshColor::update_gltf_material_color(
                 materials,
                 children_query,
                 material_query,
-                color_chang_cube_query,
+                color_change_cube_query,
                 &mut op_index,
             );
 
