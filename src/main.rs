@@ -1,7 +1,6 @@
 use bevy::{prelude::*,
     asset::{AssetEvent, Assets, Handle},
     input::common_conditions::*,
-    log::info,
     pbr::{CascadeShadowConfigBuilder, DirectionalLightShadowMap},
 };
 
@@ -16,9 +15,8 @@ fn main() {
         .add_systems(Update, (
             animate_light_direction,
             handle_asset_events,
-            start_countdown.run_if(input_just_released(MouseButton::Left)), 
-            target_screen.run_if(input_just_released(MouseButton::Right)), 
-            countdown,
+            screen_albedo, 
+            update_screen_albedo.run_if(input_just_released(MouseButton::Left)),
         ))
         .run();
 }
@@ -35,6 +33,9 @@ enum MeshColor { // If changed update VARIANT_COUNT
 impl MeshColor {
     const VARIANT_COUNT: u32 = 4;
 }
+
+#[derive(Component)]
+struct CameraUi;
 
 #[derive(Component)]
 struct ColorChange;
@@ -64,7 +65,7 @@ struct OpIndex {
 impl Countdown {
     pub fn new() -> Self {
         Self {
-            timer: Timer::from_seconds(0.125, TimerMode::Once), // Set single timer for countdown
+            timer: Timer::from_seconds(1.0 / 3.0, TimerMode::Once), // Set single timer for countdown
             loop_count: MeshColor::VARIANT_COUNT + 1, // +1 accounts for indexed logic
             current_count: 0,
             is_active: false,  // Initially inactive
@@ -117,19 +118,19 @@ impl CurrentMeshColor {
     }
 
     fn update_gltf_material_color(
-        mut materials: ResMut<Assets<StandardMaterial>>,
         children_query: Query<&Children>,
-        material_query: Query<&Handle<StandardMaterial>>,
         color_change_cube_query: Query<(Entity, &Handle<Scene>), (With<ColorChange>, With<Loaded>)>,
+        mut materials: ResMut<Assets<StandardMaterial>>,
+        material_query: Query<&Handle<StandardMaterial>>,
         op_index: &mut ResMut<OpIndex>,
     ) {
         for (entity, _) in color_change_cube_query.iter() {
             if let Ok(children) = children_query.get(entity) {
                 Self::process_entity_children(
                     &mut materials,
-                    &children_query,
                     &material_query,
                     children,
+                    &children_query,
                     op_index,         
                 );
             }
@@ -138,31 +139,31 @@ impl CurrentMeshColor {
 
     fn process_entity_children(
         materials: &mut ResMut<Assets<StandardMaterial>>,
-        children_query: &Query<&Children>,
         material_query: &Query<&Handle<StandardMaterial>>,
         children: &Children,
+        children_query: &Query<&Children>,
         op_index: &mut ResMut<OpIndex>,
     ) {
         for &child in children.iter() {
-            // Check if the entity has a material handle
-            if let Ok(material_handle) = material_query.get(child) {
-                if let Some(material) = materials.get_mut(material_handle) {
-                    material.base_color = CurrentMeshColor::update_current_mesh_color(op_index);
+            if child.index() == 64 { // This targets the screen component specifically, still learning about glb files and how to extract names s I don't have a more dynamic way of handling it for now.
+                if let Ok(material_handle) = material_query.get(child) {
+                    if let Some(material) = materials.get_mut(material_handle) {
+                        material.base_color = CurrentMeshColor::update_current_mesh_color(op_index);
+                    }
                 }
             }
-    
             // Recursively check grandchildren
             if let Ok(grandchildren) = children_query.get(child) {
                 Self::process_entity_children(
                     materials,
-                    children_query,
                     material_query,
                     grandchildren,
+                    children_query,
                     op_index,
                 );
             }
         }
-    }    
+    }
 }
 
 impl OpIndex {
@@ -178,9 +179,89 @@ fn setup(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
 ) {
+    // UI Setup
+    let font = asset_server.load("fonts/MatrixtypeDisplay-KVELZ.ttf");
+
+    let text_style = TextStyle {
+        font: font.clone(),
+        font_size: 42.0,
+        ..default()
+    };
+    let smaller_text_style = TextStyle {
+        font: font.clone(),
+        font_size: 25.0,
+        ..default()
+    };
+    
+    // UI Cam
+    commands.spawn((
+        Camera2dBundle {
+            transform: Transform::from_xyz(0.0, 0.0, 0.0),
+            camera: Camera {
+                order: 1, // Render on top of the 3D scene
+                ..default()
+                },
+            ..default()
+        },
+        CameraUi,
+    ));
+
+    commands.spawn(NodeBundle {
+        style: Style {
+            display: Display::Flex,
+            align_items: AlignItems::Center,    // Center vertically within the container
+            justify_content: JustifyContent::Center, // Center horizontally within the container
+            position_type: PositionType::Absolute,
+            // Set this node to occupy the entire screen
+            width: Val::Percent(100.0),   // Use width instead of size
+            height: Val::Percent(100.0),  // Use height instead of size
+            ..default()
+        },
+        ..default()
+    })
+    .with_children(|parent| {
+        parent.spawn(TextBundle {
+            text: Text {
+                sections: vec![TextSection::new(
+                    "Calc-Sim...",
+                    text_style.clone(),
+                )],
+                ..default()
+            },
+            style: Style {
+                position_type: PositionType::Absolute,
+                // Manually set the position of the text to the bottom left
+                // align_self: AlignSelf::Center, // Center horizontally relative to its own width
+                top: Val::Percent(2.0),  // 10 pixels from the top
+                // left: Val::Percent(50.0),  // 50% from the left
+                ..default()
+            },
+            ..default()
+        });
+    })
+    .with_children(|parent| {
+        parent.spawn(TextBundle {
+            text: Text {
+                sections: vec![TextSection::new(
+                    "Left Click to change screen colors...",
+                    smaller_text_style.clone(),
+                )],
+                ..default()
+            },
+            style: Style {
+                position_type: PositionType::Absolute,
+                // Manually set the position of the text to the bottom left
+                bottom: Val::Percent(2.0), 
+                ..default()
+            },
+            ..default()
+        });
+    });
+
+    // World Cam
     commands.spawn((
         Camera3dBundle {
-            transform: Transform::from_xyz(10.0, 10.0, 35.0)
+            transform: Transform::from_xyz(10.0, 7.5, 5.0)
                 .looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
             ..default()
         },
@@ -191,6 +272,7 @@ fn setup(
         },
     ));
 
+    // Light
     commands.spawn(DirectionalLightBundle {
         directional_light: DirectionalLight {
             shadows_enabled: true,
@@ -215,76 +297,8 @@ fn setup(
     .insert(Interactable);
 }
 
-
-
-// /// This system starts the countdown when the mouse is clicked.
-// fn start_countdown(
-//     mut countdown: ResMut<Countdown>,
-//  ) {
-//     // Only start the countdown if it's not already active
-//     if !countdown.is_active {
-//         countdown.is_active = true;
-//         countdown.current_count = 0; // Reset the current count
-//         countdown.timer.reset();  // Reset the timer to start fresh
-//         info!("Countdown {} Init", countdown.current_count);
-//     }
-// }
-
-fn target_screen(
-    interactable_query: Query<Entity, With<Interactable>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    material_query: Query<&Handle<StandardMaterial>>,
-    children_query: Query<&Children>,
-    mut op_index: ResMut<OpIndex>,
-) {
-    for entity in interactable_query.iter() {
-        if let Ok(children) = children_query.get(entity) {
-            process_entity_children(
-                &mut materials,
-                &material_query,
-                children,
-                &children_query,
-                &mut op_index,
-            );
-        }
-    }
-}
-
-fn process_entity_children(
-    materials: &mut ResMut<Assets<StandardMaterial>>,
-    material_query: &Query<&Handle<StandardMaterial>>,
-    children: &Children,
-    children_query: &Query<&Children>,
-    op_index: &mut ResMut<OpIndex>,
-) {
-    for &child in children.iter() {
-        // info!("child: {:?}", &child);
-        // for i in 0..70{
-        if child.index() == 60 {
-            if let Ok(material_handle) = material_query.get(child) {
-                if let Some(material) = materials.get_mut(material_handle) {
-                    // info!("child: {:?}, material: {:?}", &child, &material.base_color); 
-                    material.base_color = CurrentMeshColor::update_current_mesh_color(op_index);
-                }
-            }
-        }
-        
-
-        // Recursively check grandchildren
-        if let Ok(grandchildren) = children_query.get(child) {
-            process_entity_children(
-                materials,
-                material_query,
-                grandchildren,
-                children_query,
-                op_index,
-            );
-        }
-    }
-}
-
 /// This system starts the countdown when the mouse is clicked.
-fn start_countdown(
+fn update_screen_albedo(
     mut countdown: ResMut<Countdown>,
  ) {
     // Only start the countdown if it's not already active
@@ -292,13 +306,12 @@ fn start_countdown(
         countdown.is_active = true;
         countdown.current_count = 0; // Reset the current count
         countdown.timer.reset();  // Reset the timer to start fresh
-        info!("Countdown {} Init", countdown.current_count);
     }
 }
 
 /// This system controls ticking the timer within the countdown resource and
 /// handling its state.
-fn countdown(
+fn screen_albedo(
     time: Res<Time>, 
     mut countdown: ResMut<Countdown>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -314,14 +327,12 @@ fn countdown(
 
         // Check if the timer has finished for the current iteration
         if countdown.timer.finished() {
-
-            info!("Countdown {} Completed", countdown.current_count);
-    
+            // Update the albedo before we cycle color
             CurrentMeshColor::update_gltf_material_color(
-                materials,
                 children_query,
-                material_query,
                 color_change_cube_query,
+                materials,
+                material_query,
                 &mut op_index,
             );
 
@@ -335,11 +346,9 @@ fn countdown(
             // If we've completed all iterations, stop the countdown
             if countdown.current_count >= countdown.loop_count {
                 countdown.is_active = false;
-                info!("All countdowns completed");
             } else {
                 // Otherwise, reset the timer for the next iteration
                 countdown.timer.reset();
-                info!("Countdown {} Init", countdown.current_count);
             }
         } 
     }
