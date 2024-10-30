@@ -10,12 +10,15 @@ fn main() {
         .insert_resource(DirectionalLightShadowMap { size: 4096 })
         .insert_resource(OpIndex::new())
         .init_resource::<CurrentMeshColor>()
+        .init_resource::<Countdown>()
         .add_plugins(DefaultPlugins)
         .add_systems(Startup, setup)
         .add_systems(Update, (
             animate_light_direction,
             handle_asset_events,
-            CurrentMeshColor::update_gltf_material_color.run_if(input_just_released(MouseButton::Left)),
+            // CurrentMeshColor::update_gltf_material_color.run_if(input_just_released(MouseButton::Left)),
+            start_countdown.run_if(input_just_released(MouseButton::Left)), 
+            countdown,
         ))
         .run();
 }
@@ -36,6 +39,14 @@ impl MeshColor {
 #[derive(Component)]
 struct ColorChangeCube;
 
+#[derive(Resource)]
+struct Countdown {
+    timer: Timer,           // Set single timer for countdown
+    loop_count: u32,        // Number of loops, currently tied to the varient_count to loop through all dynamically
+    current_count: u32,     // Tracks where in the loop you are
+    is_active: bool,        // Tracks if the loop is active
+}
+
 #[derive(Default, Resource)]
 struct CurrentMeshColor;
 
@@ -47,12 +58,20 @@ struct OpIndex {
     index: u32,
 }
 
-impl OpIndex {
-    fn new() -> Self {
-        let index: u32 = 0;
-        OpIndex {
-            index,
+impl Countdown {
+    pub fn new() -> Self {
+        Self {
+            timer: Timer::from_seconds(0.125, TimerMode::Once), // Set single timer for countdown
+            loop_count: MeshColor::VARIANT_COUNT + 1, // +1 accounts for indexed logic
+            current_count: 0,
+            is_active: false,  // Initially inactive
         }
+    }
+}
+
+impl Default for Countdown {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -99,7 +118,7 @@ impl CurrentMeshColor {
         children_query: Query<&Children>,
         material_query: Query<&Handle<StandardMaterial>>,
         color_chang_cube_query: Query<(Entity, &Handle<Scene>), (With<ColorChangeCube>, With<Loaded>)>,
-        mut op_index: ResMut<OpIndex>,
+        op_index: &mut ResMut<OpIndex>,
     ) {
         for (entity, _) in color_chang_cube_query.iter() {
             if let Ok(children) = children_query.get(entity) {
@@ -108,15 +127,9 @@ impl CurrentMeshColor {
                     &children_query,
                     &material_query,
                     children,
-                    &mut op_index,         
+                    op_index,         
                 );
             }
-        }
-        let color_count = MeshColor::VARIANT_COUNT;
-        if op_index.index == color_count {
-            op_index.index = 0;
-        } else {
-            op_index.index += 1;
         }
     }
 
@@ -147,6 +160,15 @@ impl CurrentMeshColor {
             }
         }
     }    
+}
+
+impl OpIndex {
+    fn new() -> Self {
+        let index: u32 = 0;
+        OpIndex {
+            index,
+        }
+    }
 }
 
 fn setup(
@@ -188,6 +210,65 @@ fn setup(
     .insert(ColorChangeCube);
 }
 
+/// This system starts the countdown when the mouse is clicked.
+fn start_countdown(mut countdown: ResMut<Countdown>) {
+    // Only start the countdown if it's not already active
+    if !countdown.is_active {
+        countdown.is_active = true;
+        countdown.current_count = 0; // Reset the current count
+        countdown.timer.reset();  // Reset the timer to start fresh
+        info!("Countdown {} Init", countdown.current_count);
+    }
+}
+
+/// This system controls ticking the timer within the countdown resource and
+/// handling its state.
+fn countdown(
+    time: Res<Time>, 
+    mut countdown: ResMut<Countdown>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    children_query: Query<&Children>,
+    material_query: Query<&Handle<StandardMaterial>>,
+    color_chang_cube_query: Query<(Entity, &Handle<Scene>), (With<ColorChangeCube>, With<Loaded>)>,
+    mut op_index: ResMut<OpIndex>,
+) {
+    // Only tick the timer if the countdown is active
+    if countdown.is_active {
+        // Tick the timer
+        countdown.timer.tick(time.delta());
+
+        // Check if the timer has finished for the current iteration
+        if countdown.timer.finished() {
+            info!("Countdown {} Completed", countdown.current_count);
+    
+            CurrentMeshColor::update_gltf_material_color(
+                materials,
+                children_query,
+                material_query,
+                color_chang_cube_query,
+                &mut op_index,
+            );
+
+            countdown.current_count += 1;
+            let color_count = MeshColor::VARIANT_COUNT;
+            if op_index.index == color_count {
+                op_index.index = 0;
+            } else {
+                op_index.index += 1;
+            }
+            // If we've completed all iterations, stop the countdown
+            if countdown.current_count >= countdown.loop_count {
+                countdown.is_active = false;
+                info!("All countdowns completed");
+            } else {
+                // Otherwise, reset the timer for the next iteration
+                countdown.timer.reset();
+                info!("Countdown {} Init", countdown.current_count);
+            }
+        } 
+    }
+}
+
 fn animate_light_direction(
     time: Res<Time>,
     mut query: Query<&mut Transform, With<DirectionalLight>>,
@@ -215,108 +296,5 @@ fn handle_asset_events(
                 }
             }
         }
-    }
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins)
-        .init_resource::<Countdown>()
-        .add_systems(Update, (
-            start_countdown.run_if(input_just_released(MouseButton::Left)), 
-            countdown
-        ))
-        .run();
-}
-
-#[derive(Resource)]
-struct Countdown {
-    timer: Timer,
-    loop_count: u32,
-    current_count: u32,
-    is_active: bool,  // To track if the countdown is running
-}
-
-impl Countdown {
-    pub fn new() -> Self {
-        Self {
-            timer: Timer::from_seconds(1.0, TimerMode::Once), // Single timer for countdown
-            loop_count: 2,
-            current_count: 0,
-            is_active: false,  // Initially inactive
-        }
-    }
-}
-
-impl Default for Countdown {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// This system starts the countdown when the mouse is clicked.
-fn start_countdown(mut countdown: ResMut<Countdown>) {
-    // Only start the countdown if it's not already active
-    if !countdown.is_active {
-        countdown.is_active = true;
-        countdown.current_count = 0; // Reset the current count
-        countdown.timer.reset();  // Reset the timer to start fresh
-        info!("Countdown {} Init", countdown.current_count);
-    }
-}
-/// This system controls ticking the timer within the countdown resource and
-/// handling its state.
-fn countdown(time: Res<Time>, mut countdown: ResMut<Countdown>) {
-    // Only tick the timer if the countdown is active
-    if countdown.is_active {
-        // Tick the timer
-        countdown.timer.tick(time.delta());
-
-        // Check if the timer has finished for the current iteration
-        if countdown.timer.finished() {
-            info!("Countdown {} Completed", countdown.current_count);
-
-            countdown.current_count += 1;
-
-            // If we've completed all iterations, stop the countdown
-            if countdown.current_count >= countdown.loop_count {
-                countdown.is_active = false;
-                info!("All countdowns completed");
-            } else {
-                // Otherwise, reset the timer for the next iteration
-                countdown.timer.reset();
-                info!("Countdown {} Init", countdown.current_count);
-            }
-        } 
     }
 }
