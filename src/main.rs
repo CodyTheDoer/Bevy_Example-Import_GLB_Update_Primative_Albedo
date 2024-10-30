@@ -9,13 +9,11 @@ fn main() {
     App::new()
         .insert_resource(DirectionalLightShadowMap { size: 4096 })
         .insert_resource(OpIndex::new())
-        // .init_resource::<Countdown>()
         .init_resource::<CurrentMeshColor>()
         .add_plugins(DefaultPlugins)
         .add_systems(Startup, setup)
         .add_systems(Update, (
             animate_light_direction,
-            // countdown,
             handle_asset_events,
             cycle_color_when_completed,
             CurrentMeshColor::update_gltf_material_color.run_if(input_pressed(MouseButton::Left)),
@@ -91,7 +89,6 @@ fn setup(
     .insert(ColorChangeCube);
 
     // --- timer logic integration --- //
-
     commands.spawn(CycleOnCompletionTimer(Timer::from_seconds(
         0.25, // <----- Update seconds between triggered logic cycles here
         TimerMode::Repeating,
@@ -147,7 +144,7 @@ fn handle_asset_events(
     }
 }
 
-// --- impl Implementation including sub functions --- //
+// --- impl Declaration including sub functions --- //
 impl MeshColor {
     const VARIANT_COUNT: u32 = 4;
 }
