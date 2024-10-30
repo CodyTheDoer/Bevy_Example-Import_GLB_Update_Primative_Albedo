@@ -37,7 +37,7 @@ impl MeshColor {
 }
 
 #[derive(Component)]
-struct ColorChangeCube;
+struct ColorChange;
 
 #[derive(Resource)]
 struct Countdown {
@@ -117,7 +117,7 @@ impl CurrentMeshColor {
         mut materials: ResMut<Assets<StandardMaterial>>,
         children_query: Query<&Children>,
         material_query: Query<&Handle<StandardMaterial>>,
-        color_chang_cube_query: Query<(Entity, &Handle<Scene>), (With<ColorChangeCube>, With<Loaded>)>,
+        color_chang_cube_query: Query<(Entity, &Handle<Scene>), (With<ColorChange>, With<Loaded>)>,
         op_index: &mut ResMut<OpIndex>,
     ) {
         for (entity, _) in color_chang_cube_query.iter() {
@@ -207,7 +207,7 @@ fn setup(
         scene: scene_handle.clone(),
         ..default()
     })
-    .insert(ColorChangeCube);
+    .insert(ColorChange);
 }
 
 /// This system starts the countdown when the mouse is clicked.
@@ -229,7 +229,7 @@ fn countdown(
     mut materials: ResMut<Assets<StandardMaterial>>,
     children_query: Query<&Children>,
     material_query: Query<&Handle<StandardMaterial>>,
-    color_chang_cube_query: Query<(Entity, &Handle<Scene>), (With<ColorChangeCube>, With<Loaded>)>,
+    color_chang_cube_query: Query<(Entity, &Handle<Scene>), (With<ColorChange>, With<Loaded>)>,
     mut op_index: ResMut<OpIndex>,
 ) {
     // Only tick the timer if the countdown is active
@@ -286,7 +286,7 @@ fn animate_light_direction(
 fn handle_asset_events(
     mut commands: Commands,
     mut events: EventReader<AssetEvent<Scene>>,
-    color_change_cube_query: Query<(Entity, &Handle<Scene>), With<ColorChangeCube>>,
+    color_change_cube_query: Query<(Entity, &Handle<Scene>), With<ColorChange>>,
 ) {
     for event in events.read() {
         if let AssetEvent::Added { id } = event {
