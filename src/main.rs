@@ -20,7 +20,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_systems(Startup, (
             setup,
-            setup_text_projection,
+            setup_calc_interface_projection,
         ))
         .add_systems(Update, (
             animate_light_direction,
@@ -33,7 +33,7 @@ fn main() {
 
 #[derive(Debug, Resource)]
 enum MeshColor { // If changed update VARIANT_COUNT 
-    Black,
+    DarkGray,
     White,
     Red,
     Green,
@@ -41,7 +41,7 @@ enum MeshColor { // If changed update VARIANT_COUNT
 }
 
 impl MeshColor {
-    const VARIANT_COUNT: u32 = 4;
+    const VARIANT_COUNT: u32 = 5;
 }
 
 #[derive(Component)]
@@ -70,13 +70,24 @@ struct Loaded;
 #[derive(Clone, Resource)]
 struct OpIndex {
     index: u32,
+    screen_color: u32,
+}
+
+impl OpIndex {
+    fn new() -> Self {
+        let (index, screen_color): (u32, u32) = (0, 0);
+        OpIndex {
+            index,
+            screen_color,
+        }
+    }
 }
 
 impl Countdown {
     pub fn new() -> Self {
         Self {
             timer: Timer::from_seconds(1.0 / 3.0, TimerMode::Once), // Set single timer for countdown
-            loop_count: MeshColor::VARIANT_COUNT + 1, // +1 accounts for indexed logic
+            loop_count: MeshColor::VARIANT_COUNT,
             current_count: 0,
             is_active: false,  // Initially inactive
         }
@@ -89,10 +100,110 @@ impl Default for Countdown {
     }
 }
 
+#[derive(Resource)]
+struct CalcUIMaterialHandle {
+    material_handle: Handle<StandardMaterial>,
+    image_handle: Handle<Image>,  // Add this to store the image handle
+}
+
+fn setup_calc_interface_projection(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let size = Extent3d {
+        width: 512,
+        height: 512,
+        ..default()
+    };
+
+    // This is the texture that will be rendered to.
+    let mut image = Image {
+        texture_descriptor: TextureDescriptor {
+            label: None,
+            size,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Bgra8UnormSrgb,
+            mip_level_count: 1,
+            sample_count: 1,
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_DST
+                | TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        },
+        ..default()
+    };
+
+    // fill image.data with zeroes
+    image.resize(size);
+
+    let image_handle = images.add(image);
+
+    // Light
+    commands.spawn(DirectionalLightBundle::default());
+
+    let texture_camera = commands
+        .spawn(Camera2dBundle {
+            camera: Camera {
+                // render before the "main pass" camera
+                order: -1,
+                target: RenderTarget::Image(image_handle.clone()),
+                ..default()
+            },
+            ..default()
+        })
+        .id();
+
+    commands
+        .spawn((
+            NodeBundle {
+                style: Style {
+                    // Cover the whole image
+                    width: Val::Percent(100.),
+                    height: Val::Percent(100.),
+                    flex_direction: FlexDirection::Column,
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                background_color: GOLD.into(),
+                ..default()
+            },
+            TargetCamera(texture_camera),
+        ))
+        .with_children(|parent| {
+            parent.spawn(TextBundle::from_section(
+                "This is a cube",
+                TextStyle {
+                    font_size: 40.0,
+                    color: Color::BLACK,
+                    ..default()
+                },
+            ));
+        });
+
+    // This material has the texture that has been rendered.
+    let calc_ui_handle = materials.add(StandardMaterial {
+        base_color_texture: Some(image_handle.clone()),
+        reflectance: 0.02,
+        unlit: false,
+
+        ..default()
+    });
+
+    // Store the handle in a resource for future use
+    commands.insert_resource(CalcUIMaterialHandle {
+        material_handle: calc_ui_handle,
+        image_handle,
+    });
+}
+
+
 impl CurrentMeshColor {
     fn from_index(index: u32) -> Option<MeshColor> {
         match index {
-            0 => Some(MeshColor::Black),
+            0 => Some(MeshColor::DarkGray),
             1 => Some(MeshColor::White),
             2 => Some(MeshColor::Red),
             3 => Some(MeshColor::Green),
@@ -100,14 +211,14 @@ impl CurrentMeshColor {
             _ => None, // Handle invalid index
         }
     }
-
+   
     fn update_current_mesh_color(
-        op: &mut ResMut<OpIndex>,
+        op_index: &mut ResMut<OpIndex>,
     ) -> Color {
-        if let Some(call) = CurrentMeshColor::from_index(op.index) {
+        if let Some(call) = CurrentMeshColor::from_index(op_index.screen_color) {
             match call {
-                MeshColor::Black => {
-                    Color::srgb(0.0, 0.0, 0.0)
+                MeshColor::DarkGray => {
+                    Color::srgb(0.1, 0.1, 0.1)
                 },
                 MeshColor::White => {
                     Color::srgb(1.0, 1.0, 1.0)
@@ -123,6 +234,7 @@ impl CurrentMeshColor {
                 },
             }
         } else {
+            info!("FAILURE: update_current_mesh_color");
             Color::srgb(0.0, 0.0, 0.0)
         }
     }
@@ -133,6 +245,7 @@ impl CurrentMeshColor {
         mut materials: ResMut<Assets<StandardMaterial>>,
         material_query: Query<&Handle<StandardMaterial>>,
         op_index: &mut ResMut<OpIndex>,
+        calc_ui_material: &Res<CalcUIMaterialHandle>,
     ) {
         for (entity, _) in color_change_cube_query.iter() {
             if let Ok(children) = children_query.get(entity) {
@@ -141,7 +254,8 @@ impl CurrentMeshColor {
                     &material_query,
                     children,
                     &children_query,
-                    op_index,         
+                    op_index, 
+                    calc_ui_material,        
                 );
             }
         }
@@ -153,11 +267,13 @@ impl CurrentMeshColor {
         children: &Children,
         children_query: &Query<&Children>,
         op_index: &mut ResMut<OpIndex>,
+        calc_ui_material: &Res<CalcUIMaterialHandle>,
     ) {
         for &child in children.iter() {
-            if child.index() == 64 { // This targets the screen component specifically, still learning about glb files and how to extract names s I don't have a more dynamic way of handling it for now.
+            if child.index() == 68 { // This targets the screen component specifically, still learning about glb files and how to extract names s I don't have a more dynamic way of handling it for now.
                 if let Ok(material_handle) = material_query.get(child) {
                     if let Some(material) = materials.get_mut(material_handle) {
+                        material.base_color_texture = Some(calc_ui_material.image_handle.clone());
                         material.base_color = CurrentMeshColor::update_current_mesh_color(op_index);
                     }
                 }
@@ -170,17 +286,9 @@ impl CurrentMeshColor {
                     grandchildren,
                     children_query,
                     op_index,
+                    calc_ui_material,
                 );
             }
-        }
-    }
-}
-
-impl OpIndex {
-    fn new() -> Self {
-        let index: u32 = 0;
-        OpIndex {
-            index,
         }
     }
 }
@@ -329,6 +437,7 @@ fn screen_albedo(
     material_query: Query<&Handle<StandardMaterial>>,
     color_change_cube_query: Query<(Entity, &Handle<Scene>), (With<ColorChange>, With<Loaded>)>,
     mut op_index: ResMut<OpIndex>,
+    calc_ui_material: Res<CalcUIMaterialHandle>,
 ) {
     // Only tick the timer if the countdown is active
     if countdown.is_active {
@@ -344,14 +453,15 @@ fn screen_albedo(
                 materials,
                 material_query,
                 &mut op_index,
+                &calc_ui_material,
             );
 
             countdown.current_count += 1;
-            let color_count = MeshColor::VARIANT_COUNT;
-            if op_index.index == color_count {
-                op_index.index = 0;
+            let color_count = MeshColor::VARIANT_COUNT - 1; // -1 accounts for indexed logic
+            if op_index.screen_color >= color_count {
+                op_index.screen_color = 0;
             } else {
-                op_index.index += 1;
+                op_index.screen_color += 1;
             }
             // If we've completed all iterations, stop the countdown
             if countdown.current_count >= countdown.loop_count {
@@ -392,113 +502,4 @@ fn handle_asset_events(
             }
         }
     }
-}
-
-// --- UI Projection to material --- //
-
-
-
-// Marks the cube, to which the UI texture is applied.
-#[derive(Component)]
-struct Cube;
-
-fn setup_text_projection(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut images: ResMut<Assets<Image>>,
-) {
-    let size = Extent3d {
-        width: 512,
-        height: 512,
-        ..default()
-    };
-
-    // This is the texture that will be rendered to.
-    let mut image = Image {
-        texture_descriptor: TextureDescriptor {
-            label: None,
-            size,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Bgra8UnormSrgb,
-            mip_level_count: 1,
-            sample_count: 1,
-            usage: TextureUsages::TEXTURE_BINDING
-                | TextureUsages::COPY_DST
-                | TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        },
-        ..default()
-    };
-
-    // fill image.data with zeroes
-    image.resize(size);
-
-    let image_handle = images.add(image);
-
-    // Light
-    commands.spawn(DirectionalLightBundle::default());
-
-    let texture_camera = commands
-        .spawn(Camera2dBundle {
-            camera: Camera {
-                // render before the "main pass" camera
-                order: -1,
-                target: RenderTarget::Image(image_handle.clone()),
-                ..default()
-            },
-            ..default()
-        })
-        .id();
-
-    commands
-        .spawn((
-            NodeBundle {
-                style: Style {
-                    // Cover the whole image
-                    width: Val::Percent(100.),
-                    height: Val::Percent(100.),
-                    flex_direction: FlexDirection::Column,
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    ..default()
-                },
-                background_color: GOLD.into(),
-                ..default()
-            },
-            TargetCamera(texture_camera),
-        ))
-        .with_children(|parent| {
-            parent.spawn(TextBundle::from_section(
-                "This is a cube",
-                TextStyle {
-                    font_size: 40.0,
-                    color: Color::BLACK,
-                    ..default()
-                },
-            ));
-        });
-
-    let cube_size = 4.0;
-    let cube_handle = meshes.add(Cuboid::new(cube_size, cube_size, cube_size));
-
-    // This material has the texture that has been rendered.
-    let material_handle = materials.add(StandardMaterial {
-        base_color_texture: Some(image_handle),
-        reflectance: 0.02,
-        unlit: false,
-
-        ..default()
-    });
-
-    // Cube with material containing the rendered UI texture.
-    commands.spawn((
-        PbrBundle {
-            mesh: cube_handle,
-            material: material_handle,
-            transform: Transform::from_xyz(0.0, 0.0, 1.5),
-            ..default()
-        },
-        Cube,
-    ));
 }
