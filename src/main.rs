@@ -1,6 +1,5 @@
 use bevy::{prelude::*,
     asset::{AssetEvent, Assets, Handle},
-    color::palettes::css::GOLD,
     input::common_conditions::*,
     render::{
         camera::RenderTarget,
@@ -26,17 +25,25 @@ fn main() {
             animate_light_direction,
             handle_asset_events,
             screen_albedo, 
+            increase_screen_color_tracker_count.run_if(input_just_released(MouseButton::Right)),
             update_screen_albedo.run_if(input_just_released(MouseButton::Left)),
         ))
         .run();
 }
 
+fn increase_screen_color_tracker_count(
+    mut op_index: ResMut<OpIndex>,
+) {
+    op_index.screen_color += 1;
+}
+
 #[derive(Debug, Resource)]
 enum MeshColor { // If changed update VARIANT_COUNT 
-    DarkGray,
+    Gray,
     White,
     Red,
     Green,
+    RedAgain,
     Blue,
 }
 
@@ -67,7 +74,7 @@ struct Interactable;
 #[derive(Component)]
 struct Loaded;
 
-#[derive(Clone, Resource)]
+#[derive(Clone, Debug, Resource)]
 struct OpIndex {
     index: u32,
     screen_color: u32,
@@ -167,7 +174,7 @@ fn setup_calc_interface_projection(
                     align_items: AlignItems::Center,
                     ..default()
                 },
-                background_color: GOLD.into(),
+                background_color: BackgroundColor(Color::srgb(1.0, 1.0, 1.0)),
                 ..default()
             },
             TargetCamera(texture_camera),
@@ -203,12 +210,16 @@ fn setup_calc_interface_projection(
 impl CurrentMeshColor {
     fn from_index(index: u32) -> Option<MeshColor> {
         match index {
-            0 => Some(MeshColor::DarkGray),
+            0 => Some(MeshColor::Gray),
             1 => Some(MeshColor::White),
-            2 => Some(MeshColor::Red),
+            5 => Some(MeshColor::Red),
             3 => Some(MeshColor::Green),
             4 => Some(MeshColor::Blue),
-            _ => None, // Handle invalid index
+            2 => Some(MeshColor::RedAgain),
+            _ => {
+                    // info!("FAILURE: update_current_mesh_color");
+                    None
+                }, // Handle invalid index
         }
     }
    
@@ -217,23 +228,33 @@ impl CurrentMeshColor {
     ) -> Color {
         if let Some(call) = CurrentMeshColor::from_index(op_index.screen_color) {
             match call {
-                MeshColor::DarkGray => {
-                    Color::srgb(0.1, 0.1, 0.1)
+                MeshColor::Gray => {
+                    // info!("Gray");
+                    Color::srgb(0.5, 0.5, 0.5)
                 },
                 MeshColor::White => {
+                    // info!("White");
                     Color::srgb(1.0, 1.0, 1.0)
                 },
                 MeshColor::Red => {
+                    // info!("Red");
                     Color::srgb(1.0, 0.0, 0.0)
                 },
                 MeshColor::Green => {
+                    // info!("Green");
                     Color::srgb(0.0, 1.0, 0.0)
                 },
                 MeshColor::Blue => {
-                    Color::srgb(0.0, 0.0, 1.0)
+                    // info!("Blue");
+                    Color::srgb(0.0, 0.1, 1.0)
+                },
+                MeshColor::RedAgain => {
+                    // info!("Red");
+                    Color::srgb(1.0, 0.0, 0.0)
                 },
             }
         } else {
+            info!("OpIndex Screen Color: {:?}", op_index.screen_color);
             info!("FAILURE: update_current_mesh_color");
             Color::srgb(0.0, 0.0, 0.0)
         }
@@ -249,6 +270,7 @@ impl CurrentMeshColor {
     ) {
         for (entity, _) in color_change_cube_query.iter() {
             if let Ok(children) = children_query.get(entity) {
+                // info!("Processing entity children for color update.");
                 Self::process_entity_children(
                     &mut materials,
                     &material_query,
@@ -257,6 +279,8 @@ impl CurrentMeshColor {
                     op_index, 
                     calc_ui_material,        
                 );
+            } else {
+                warn!("Failed to retrieve children for entity: {:?}", entity);
             }
         }
     }
@@ -270,14 +294,23 @@ impl CurrentMeshColor {
         calc_ui_material: &Res<CalcUIMaterialHandle>,
     ) {
         for &child in children.iter() {
-            if child.index() == 68 { // This targets the screen component specifically, still learning about glb files and how to extract names s I don't have a more dynamic way of handling it for now.
+            if child.index() == 68 { // This targets the screen component specifically, still learning about glb files and how to extract names s I don't have a more dynamic way of handling it for now.{
+                // info!("Updating material for child entity: {:?}", child);
                 if let Ok(material_handle) = material_query.get(child) {
                     if let Some(material) = materials.get_mut(material_handle) {
-                        material.base_color_texture = Some(calc_ui_material.image_handle.clone());
+                        let new_color = CurrentMeshColor::update_current_mesh_color(op_index);
                         material.base_color = CurrentMeshColor::update_current_mesh_color(op_index);
-                    }
-                }
+                        material.base_color_texture = Some(calc_ui_material.image_handle.clone());
+                        // info!("op_index: {:?}", &op_index);
+                        // info!("Material updated with color: {:?}", new_color);
+                    } else {
+                        warn!("Material not found or invalid for handle: {:?}", material_handle);                    }
+                } else {
+                    warn!("Could not get material handle for child: {:?}", child);                }
+            } else {
+                // info!("Skipping child with index: {:?}", child.index());
             }
+
             // Recursively check grandchildren
             if let Ok(grandchildren) = children_query.get(child) {
                 Self::process_entity_children(
@@ -439,6 +472,16 @@ fn screen_albedo(
     mut op_index: ResMut<OpIndex>,
     calc_ui_material: Res<CalcUIMaterialHandle>,
 ) {
+    // Update the albedo before we cycle color
+    CurrentMeshColor::update_gltf_material_color(
+        children_query,
+        color_change_cube_query,
+        materials,
+        material_query,
+        &mut op_index,
+        &calc_ui_material,
+    );
+
     // Only tick the timer if the countdown is active
     if countdown.is_active {
         // Tick the timer
@@ -446,18 +489,9 @@ fn screen_albedo(
 
         // Check if the timer has finished for the current iteration
         if countdown.timer.finished() {
-            // Update the albedo before we cycle color
-            CurrentMeshColor::update_gltf_material_color(
-                children_query,
-                color_change_cube_query,
-                materials,
-                material_query,
-                &mut op_index,
-                &calc_ui_material,
-            );
 
             countdown.current_count += 1;
-            let color_count = MeshColor::VARIANT_COUNT - 1; // -1 accounts for indexed logic
+            let color_count = MeshColor::VARIANT_COUNT -1; // -1 accounts for indexed logic
             if op_index.screen_color >= color_count {
                 op_index.screen_color = 0;
             } else {
