@@ -216,10 +216,7 @@ impl CurrentMeshColor {
             3 => Some(MeshColor::Green),
             4 => Some(MeshColor::Blue),
             2 => Some(MeshColor::RedAgain),
-            _ => {
-                    // info!("FAILURE: update_current_mesh_color");
-                    None
-                }, // Handle invalid index
+            _ => {None}, // Handle invalid index
         }
     }
    
@@ -229,33 +226,25 @@ impl CurrentMeshColor {
         if let Some(call) = CurrentMeshColor::from_index(op_index.screen_color) {
             match call {
                 MeshColor::Gray => {
-                    // info!("Gray");
                     Color::srgb(0.5, 0.5, 0.5)
                 },
                 MeshColor::White => {
-                    // info!("White");
                     Color::srgb(1.0, 1.0, 1.0)
                 },
                 MeshColor::Red => {
-                    // info!("Red");
                     Color::srgb(1.0, 0.0, 0.0)
                 },
                 MeshColor::Green => {
-                    // info!("Green");
                     Color::srgb(0.0, 1.0, 0.0)
                 },
                 MeshColor::Blue => {
-                    // info!("Blue");
                     Color::srgb(0.0, 0.1, 1.0)
                 },
                 MeshColor::RedAgain => {
-                    // info!("Red");
                     Color::srgb(1.0, 0.0, 0.0)
                 },
             }
         } else {
-            info!("OpIndex Screen Color: {:?}", op_index.screen_color);
-            info!("FAILURE: update_current_mesh_color");
             Color::srgb(0.0, 0.0, 0.0)
         }
     }
@@ -270,7 +259,6 @@ impl CurrentMeshColor {
     ) {
         for (entity, _) in color_change_cube_query.iter() {
             if let Ok(children) = children_query.get(entity) {
-                // info!("Processing entity children for color update.");
                 Self::process_entity_children(
                     &mut materials,
                     &material_query,
@@ -295,20 +283,16 @@ impl CurrentMeshColor {
     ) {
         for &child in children.iter() {
             if child.index() == 68 { // This targets the screen component specifically, still learning about glb files and how to extract names s I don't have a more dynamic way of handling it for now.{
-                // info!("Updating material for child entity: {:?}", child);
                 if let Ok(material_handle) = material_query.get(child) {
                     if let Some(material) = materials.get_mut(material_handle) {
                         let new_color = CurrentMeshColor::update_current_mesh_color(op_index);
                         material.base_color = CurrentMeshColor::update_current_mesh_color(op_index);
                         material.base_color_texture = Some(calc_ui_material.image_handle.clone());
-                        // info!("op_index: {:?}", &op_index);
-                        // info!("Material updated with color: {:?}", new_color);
                     } else {
                         warn!("Material not found or invalid for handle: {:?}", material_handle);                    }
                 } else {
                     warn!("Could not get material handle for child: {:?}", child);                }
             } else {
-                // info!("Skipping child with index: {:?}", child.index());
             }
 
             // Recursively check grandchildren
