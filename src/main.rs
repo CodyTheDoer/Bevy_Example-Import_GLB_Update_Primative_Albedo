@@ -25,16 +25,9 @@ fn main() {
             animate_light_direction,
             handle_asset_events,
             screen_albedo, 
-            increase_screen_color_tracker_count.run_if(input_just_released(MouseButton::Right)),
             update_screen_albedo.run_if(input_just_released(MouseButton::Left)),
         ))
         .run();
-}
-
-fn increase_screen_color_tracker_count(
-    mut op_index: ResMut<OpIndex>,
-) {
-    op_index.screen_color += 1;
 }
 
 #[derive(Debug, Resource)]
